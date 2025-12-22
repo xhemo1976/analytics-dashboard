@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  websites  Website[] 
+  createdAt DateTime  @default(now())
+}
+
+model Website {
+  id        String   @id @default(cuid())
+  domain    String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events    Event[]  
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+}
+
+model Event {
+  id          String   @id @default(cuid())
+  websiteId   String
+  website     Website  @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  urlPath     String   
+  referrer    String?
+  userAgent   String?
+  source      String?  
+  medium      String?  
+  campaign    String?  
+  createdAt   DateTime @default(now())
+  
+  @@index([websiteId])
+  @@index([createdAt])
+}
