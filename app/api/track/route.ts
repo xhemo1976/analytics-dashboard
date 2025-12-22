@@ -1,10 +1,47 @@
 import { prisma } from '@/lib/prisma'
 import { NextRequest, NextResponse } from 'next/server'
 
+async function getGeoLocation(ip: string) {
+  try {
+    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168')) {
+      return null
+    }
+    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`)
+    const data = await res.json()
+    if (data.status === 'success') {
+      return {
+        country: data.country,
+        countryCode: data.countryCode,
+        city: data.city,
+        region: data.regionName
+      }
+    }
+  } catch (e) {
+    console.error('Geo lookup failed:', e)
+  }
+  return null
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { domain, urlPath, referrer, userAgent, source, medium, campaign } = body
+    const { 
+      domain, 
+      urlPath, 
+      referrer, 
+      userAgent,
+      deviceType,
+      browser,
+      browserVersion,
+      os,
+      screenWidth,
+      screenHeight,
+      source, 
+      medium, 
+      campaign,
+      sessionId,
+      isNewVisitor
+    } = body
 
     if (!domain) {
       return NextResponse.json({ error: 'Domain is required' }, { status: 400 })
@@ -15,11 +52,15 @@ export async function POST(request: NextRequest) {
     })
 
     if (!website) {
-      return NextResponse.json(
-        { error: 'Website not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Website not found' }, { status: 404 })
     }
+
+    // IP Adresse holen
+    const forwardedFor = request.headers.get('x-forwarded-for')
+    const ip = forwardedFor?.split(',')[0] || request.headers.get('x-real-ip') || 'unknown'
+    
+    // Geo-Location abrufen
+    const geo = await getGeoLocation(ip)
 
     const event = await prisma.event.create({
       data: {
@@ -27,9 +68,21 @@ export async function POST(request: NextRequest) {
         urlPath: urlPath || '/',
         referrer: referrer || null,
         userAgent: userAgent || null,
+        deviceType: deviceType || null,
+        browser: browser || null,
+        browserVersion: browserVersion || null,
+        os: os || null,
+        screenWidth: screenWidth || null,
+        screenHeight: screenHeight || null,
+        country: geo?.country || null,
+        countryCode: geo?.countryCode || null,
+        city: geo?.city || null,
+        region: geo?.region || null,
         source: source || null,
         medium: medium || null,
         campaign: campaign || null,
+        sessionId: sessionId || null,
+        isNewVisitor: isNewVisitor ?? true,
       },
     })
 
