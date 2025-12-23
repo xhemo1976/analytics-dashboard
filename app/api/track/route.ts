@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { NextRequest, NextResponse } from 'next/server'
 
+// Erlaubte Origins konfigurieren
 const allowedOrigins = [
   "https://berlinkassen.de",
   "https://www.berlinkassen.de",
@@ -8,46 +9,18 @@ const allowedOrigins = [
 ]
 
 function getCorsHeaders(origin: string | null) {
-  const allowOrigin = (origin && allowedOrigins.some(o => origin.startsWith(o.replace('www.', '')))) 
-    ? origin 
-    : "https://berlinkassen.de"
-
+  // Wenn kein Origin da ist (z.B. Server-zu-Server), erlauben wir Standard oder blockieren.
+  // Hier erlauben wir den expliziten Abgleich.
+  const isAllowed = origin && allowedOrigins.some(o => origin.includes(o.replace('https://', '').replace('http://', '')));
+  
   return {
-    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Origin": isAllowed ? origin : allowedOrigins[0],
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Credentials": "true",
+    // Credentials auf false, weil sendBeacon/JSON Blob das oft einfacher handhaben
+    // und wir keine Cookies für Auth brauchen.
+    "Access-Control-Allow-Credentials": "true", 
   }
-}
-
-async function getGeoLocation(ip: string) {
-  try {
-    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168')) {
-      return null
-    }
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 1000)
-
-    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`, {
-      signal: controller.signal
-    })
-    
-    clearTimeout(timeoutId)
-
-    if (!res.ok) return null
-
-    const data = await res.json()
-    if (data.status === 'success') {
-      return {
-        country: data.country,
-        countryCode: data.countryCode,
-        city: data.city,
-        region: data.regionName
-      }
-    }
-  } catch (e) {}
-  return null
 }
 
 export async function OPTIONS(request: NextRequest) {
@@ -61,34 +34,24 @@ export async function POST(request: NextRequest) {
 
   try {
     let body;
+    // sendBeacon sendet manchmal Plain Text, wir parsen es sicherheitshalber
     try {
       body = await request.json()
-    } catch {
+    } catch (e) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400, headers })
     }
 
     const { 
-      domain, 
-      urlPath, 
-      referrer, 
-      userAgent,
-      deviceType,
-      browser,
-      browserVersion,
-      os,
-      screenWidth,
-      screenHeight,
-      source, 
-      medium, 
-      campaign,
-      sessionId,
-      isNewVisitor
+      domain, urlPath, referrer, userAgent,
+      deviceType, browser, os, screenWidth, screenHeight,
+      source, medium, campaign, sessionId
     } = body
 
     if (!domain) {
-      return NextResponse.json({ error: 'Domain is required' }, { status: 400, headers })
+      return NextResponse.json({ error: 'Domain required' }, { status: 400, headers })
     }
 
+    // Website finden
     const website = await prisma.website.findUnique({
       where: { domain },
     })
@@ -97,11 +60,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Website not found' }, { status: 404, headers })
     }
 
-    const forwardedFor = request.headers.get('x-forwarded-for')
-    const ip = forwardedFor?.split(',')[0] || request.headers.get('x-real-ip') || '127.0.0.1'
-    
-    const geo = await getGeoLocation(ip)
+    // GEO LOCATION via Vercel Headers (Blitzschnell, kein Timeout)
+    const country = request.headers.get('x-vercel-ip-country');
+    const region = request.headers.get('x-vercel-ip-country-region');
+    const city = request.headers.get('x-vercel-ip-city');
 
+    // Event speichern
     const event = await prisma.event.create({
       data: {
         websiteId: website.id,
@@ -110,26 +74,26 @@ export async function POST(request: NextRequest) {
         userAgent: userAgent || null,
         deviceType: deviceType || null,
         browser: browser || null,
-        browserVersion: browserVersion || null,
         os: os || null,
         screenWidth: screenWidth || null,
         screenHeight: screenHeight || null,
-        country: geo?.country || null,
-        countryCode: geo?.countryCode || null,
-        city: geo?.city || null,
-        region: geo?.region || null,
+        // Geo Daten direkt von Vercel
+        country: country || null,
+        countryCode: country || null,
+        city: city || null,
+        region: region || null,
+        // Kampagnen Daten
         source: source || null,
         medium: medium || null,
         campaign: campaign || null,
         sessionId: sessionId || null,
-        isNewVisitor: isNewVisitor ?? true,
       },
     })
 
-    return NextResponse.json({ success: true, eventId: event.id }, { status: 201, headers })
+    return NextResponse.json({ success: true, id: event.id }, { status: 201, headers })
 
   } catch (error) {
-    console.error('Tracking error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers })
+    console.error('Tracking Error:', error)
+    return NextResponse.json({ error: 'Server Error' }, { status: 500, headers })
   }
 }
