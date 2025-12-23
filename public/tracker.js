@@ -1,20 +1,17 @@
 (function() {
   const endpoint = 'https://analytics-dashboard-swart-eight.vercel.app/api/track';
   
-  // Session ID generieren oder wiederholen
   let sessionId = sessionStorage.getItem('_analytics_session');
   if (!sessionId) {
     sessionId = 'sess_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
     sessionStorage.setItem('_analytics_session', sessionId);
   }
   
-  // Neuer Besucher?
   const isNewVisitor = !localStorage.getItem('_analytics_visitor');
   if (isNewVisitor) {
     localStorage.setItem('_analytics_visitor', 'true');
   }
   
-  // Gerät erkennen
   function getDeviceType() {
     const ua = navigator.userAgent;
     if (/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(ua)) return 'tablet';
@@ -22,7 +19,6 @@
     return 'desktop';
   }
   
-  // Browser erkennen
   function getBrowser() {
     const ua = navigator.userAgent;
     if (ua.includes('Firefox')) return { name: 'Firefox', version: ua.match(/Firefox\/(\d+)/)?.[1] };
@@ -33,11 +29,9 @@
     return { name: 'Unknown', version: null };
   }
   
-  // Betriebssystem erkennen
   function getOS() {
     const ua = navigator.userAgent;
     if (ua.includes('Windows NT 10')) return 'Windows 10';
-    if (ua.includes('Windows NT 11') || (ua.includes('Windows NT 10') && navigator.userAgentData?.platform === 'Windows')) return 'Windows 11';
     if (ua.includes('Windows')) return 'Windows';
     if (ua.includes('Mac OS X')) return 'macOS';
     if (ua.includes('Linux') && ua.includes('Android')) return 'Android';
@@ -46,7 +40,6 @@
     return 'Unknown';
   }
   
-  // UTM Parameter auslesen
   function getUTMParams() {
     const params = new URLSearchParams(window.location.search);
     return {
@@ -56,7 +49,6 @@
     };
   }
   
-  // Social Media Referrer erkennen
   function getSourceFromReferrer(referrer) {
     if (!referrer) return null;
     if (referrer.includes('google')) return 'Google';
@@ -97,6 +89,8 @@
   fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
+    body: JSON.stringify(data),
+    mode: 'cors',
+    credentials: 'omit'
+  }).catch(function() {});
 })();
