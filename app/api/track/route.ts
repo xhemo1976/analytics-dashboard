@@ -1,100 +1,93 @@
 import { prisma } from '@/lib/prisma'
 import { NextRequest, NextResponse } from 'next/server'
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-}
-
-async function getGeoLocation(ip: string) {
+export async function GET(request: NextRequest) {
   try {
-    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168')) {
-      return null
-    }
-    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`)
-    const data = await res.json()
-    if (data.status === 'success') {
-      return {
-        country: data.country,
-        countryCode: data.countryCode,
-        city: data.city,
-        region: data.regionName
+    const { searchParams } = new URL(request.url)
+    const domain = searchParams.get('d')
+    const urlPath = searchParams.get('p') || '/'
+    const referrer = searchParams.get('r') || null
+    const screenWidth = parseInt(searchParams.get('sw') || '0') || null
+    const screenHeight = parseInt(searchParams.get('sh') || '0') || null
+    
+    const ua = request.headers.get('user-agent') || ''
+    
+    // Device Type
+    let deviceType = 'desktop'
+    if (/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(ua)) deviceType = 'tablet'
+    else if (/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(ua)) deviceType = 'mobile'
+    
+    // Browser
+    let browser = 'Unknown'
+    if (ua.includes('Firefox')) browser = 'Firefox'
+    else if (ua.includes('Edg')) browser = 'Edge'
+    else if (ua.includes('Chrome')) browser = 'Chrome'
+    else if (ua.includes('Safari')) browser = 'Safari'
+    
+    // OS
+    let os = 'Unknown'
+    if (ua.includes('Windows')) os = 'Windows'
+    else if (ua.includes('Mac OS')) os = 'macOS'
+    else if (ua.includes('Android')) os = 'Android'
+    else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS'
+    else if (ua.includes('Linux')) os = 'Linux'
+
+    if (domain) {
+      const website = await prisma.website.findUnique({
+        where: { domain },
+      })
+
+      if (website) {
+        // Geo Location
+        const forwardedFor = request.headers.get('x-forwarded-for')
+        const ip = forwardedFor?.split(',')[0] || 'unknown'
+        
+        let geo = null
+        try {
+          if (ip !== 'unknown' && !ip.startsWith('192.168')) {
+            const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`)
+            const data = await res.json()
+            if (data.status === 'success') {
+              geo = {
+                country: data.country,
+                countryCode: data.countryCode,
+                city: data.city,
+                region: data.regionName
+              }
+            }
+          }
+        } catch (e) {}
+
+        await prisma.event.create({
+          data: {
+            websiteId: website.id,
+            urlPath,
+            referrer,
+            userAgent: ua,
+            deviceType,
+            browser,
+            os,
+            screenWidth,
+            screenHeight,
+            country: geo?.country || null,
+            countryCode: geo?.countryCode || null,
+            city: geo?.city || null,
+            region: geo?.region || null,
+          },
+        })
       }
     }
-  } catch (e) {}
-  return null
-}
-
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders })
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const { 
-      domain, 
-      urlPath, 
-      referrer, 
-      userAgent,
-      deviceType,
-      browser,
-      browserVersion,
-      os,
-      screenWidth,
-      screenHeight,
-      source, 
-      medium, 
-      campaign,
-      sessionId,
-      isNewVisitor
-    } = body
-
-    if (!domain) {
-      return NextResponse.json({ error: 'Domain is required' }, { status: 400, headers: corsHeaders })
-    }
-
-    const website = await prisma.website.findUnique({
-      where: { domain },
-    })
-
-    if (!website) {
-      return NextResponse.json({ error: 'Website not found' }, { status: 404, headers: corsHeaders })
-    }
-
-    const forwardedFor = request.headers.get('x-forwarded-for')
-    const ip = forwardedFor?.split(',')[0] || request.headers.get('x-real-ip') || 'unknown'
-    
-    const geo = await getGeoLocation(ip)
-
-    const event = await prisma.event.create({
-      data: {
-        websiteId: website.id,
-        urlPath: urlPath || '/',
-        referrer: referrer || null,
-        userAgent: userAgent || null,
-        deviceType: deviceType || null,
-        browser: browser || null,
-        browserVersion: browserVersion || null,
-        os: os || null,
-        screenWidth: screenWidth || null,
-        screenHeight: screenHeight || null,
-        country: geo?.country || null,
-        countryCode: geo?.countryCode || null,
-        city: geo?.city || null,
-        region: geo?.region || null,
-        source: source || null,
-        medium: medium || null,
-        campaign: campaign || null,
-        sessionId: sessionId || null,
-        isNewVisitor: isNewVisitor ?? true,
-      },
-    })
-
-    return NextResponse.json({ success: true, eventId: event.id }, { status: 201, headers: corsHeaders })
-  } catch (error) {
-    console.error('Tracking error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders })
+  } catch (e) {
+    console.error('Pixel error:', e)
   }
+
+  // Return 1x1 transparent GIF
+  const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
+  
+  return new NextResponse(pixel, {
+    headers: {
+      'Content-Type': 'image/gif',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+    },
+  })
 }
