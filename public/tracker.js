@@ -11,5 +11,5 @@
     return k + '=' + encodeURIComponent(data[k] || '');
   }).join('&');
   
-  new Image().src = '/pixel.php?' + params;
+  new Image().src = '/api/pixel?' + params;
 })();
