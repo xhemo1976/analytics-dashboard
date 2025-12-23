@@ -1,6 +1,13 @@
 import { prisma } from '@/lib/prisma'
 import { NextRequest, NextResponse } from 'next/server'
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "https://berlinkassen.de",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Credentials": "true",
+}
+
 async function getGeoLocation(ip: string) {
   try {
     if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168')) {
@@ -20,6 +27,10 @@ async function getGeoLocation(ip: string) {
     console.error('Geo lookup failed:', e)
   }
   return null
+}
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders })
 }
 
 export async function POST(request: NextRequest) {
@@ -44,7 +55,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     if (!domain) {
-      return NextResponse.json({ error: 'Domain is required' }, { status: 400 })
+      return NextResponse.json({ error: 'Domain is required' }, { status: 400, headers: corsHeaders })
     }
 
     const website = await prisma.website.findUnique({
@@ -52,14 +63,12 @@ export async function POST(request: NextRequest) {
     })
 
     if (!website) {
-      return NextResponse.json({ error: 'Website not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Website not found' }, { status: 404, headers: corsHeaders })
     }
 
-    // IP Adresse holen
     const forwardedFor = request.headers.get('x-forwarded-for')
     const ip = forwardedFor?.split(',')[0] || request.headers.get('x-real-ip') || 'unknown'
     
-    // Geo-Location abrufen
     const geo = await getGeoLocation(ip)
 
     const event = await prisma.event.create({
@@ -86,20 +95,9 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({ success: true, eventId: event.id }, { status: 201 })
+    return NextResponse.json({ success: true, eventId: event.id }, { status: 201, headers: corsHeaders })
   } catch (error) {
     console.error('Tracking error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders })
   }
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  })
 }
