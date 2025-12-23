@@ -11,5 +11,5 @@
     return k + '=' + encodeURIComponent(data[k] || '');
   }).join('&');
   
-  new Image().src = 'https://analytics-dashboard-swart-eight.vercel.app/api/pixel?' + params;
+  new Image().src = '/pixel.php?' + params;
 })();
