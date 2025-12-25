@@ -50,66 +50,65 @@ export async function GET(request: NextRequest) {
         const cfConnectingIp = request.headers.get('cf-connecting-ip') // Cloudflare
         const realIp = request.headers.get('x-real-ip')
         const clientIp = request.headers.get('x-client-ip')
+        const vercelIp = request.headers.get('x-vercel-forwarded-for') // Vercel
         
-        // Priorität: cf-connecting-ip > x-real-ip > x-forwarded-for (erste IP) > x-client-ip
-        let ip = cfConnectingIp || realIp || (forwardedFor?.split(',')[0]?.trim()) || clientIp || null
-        
-        // Debug: Log welche IP gefunden wurde
-        console.log(`[IP Detection] cf-connecting-ip: ${cfConnectingIp}, x-real-ip: ${realIp}, x-forwarded-for: ${forwardedFor}, x-client-ip: ${clientIp}, Final IP: ${ip}`)
+        // Priorität: cf-connecting-ip > x-real-ip > x-vercel-forwarded-for > x-forwarded-for (erste IP) > x-client-ip
+        let ip = cfConnectingIp || realIp || vercelIp || (forwardedFor?.split(',')[0]?.trim()) || clientIp || null
         
         let geo = null
         try {
-          // Wenn IP in Headern gefunden wurde und gültig ist
+          // Versuche immer Geolokalisierung, auch wenn IP nicht perfekt ist
           if (ip && ip !== 'unknown' && ip !== '' && !ip.startsWith('192.168') && !ip.startsWith('10.') && !ip.startsWith('172.16')) {
             // Verwende HTTPS für die IP-API mit spezifischer IP
             const res = await fetch(`https://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`, {
               headers: {
                 'User-Agent': 'Mozilla/5.0'
-              }
+              },
+              // Timeout nach 5 Sekunden
+              signal: AbortSignal.timeout(5000)
             })
             const data = await res.json()
             
-            // Debug-Logging für alle Requests
-            console.log(`[Geo] IP: ${ip}, Status: ${data.status}, Country: ${data.country}, City: ${data.city}, Device: ${deviceType}`)
-            
             if (data.status === 'success') {
-              // Speichere auch wenn nur Land vorhanden ist (nicht nur wenn Stadt vorhanden ist)
               geo = {
                 country: data.country || null,
                 countryCode: data.countryCode || null,
                 city: data.city || null,
                 region: data.regionName || null
               }
+              console.log(`[Geo Success] IP: ${ip}, Country: ${geo.country}, City: ${geo.city}`)
             } else {
-              console.log(`[Geo] Lookup failed - IP: ${ip}, Status: ${data.status}, Message: ${data.message || 'unknown'}`)
+              console.log(`[Geo Failed] IP: ${ip}, Status: ${data.status}, Message: ${data.message || 'unknown'}`)
             }
-          } else if (!ip || ip === 'unknown' || ip === '') {
-            // Fallback: Rufe IP-API ohne IP-Parameter auf, um Client-IP automatisch zu erkennen
-            console.log(`[Geo] No IP in headers, trying auto-detection`)
+          }
+          
+          // Fallback: Wenn keine IP oder Geo-Lookup fehlgeschlagen, versuche alternative Methode
+          if (!geo) {
             try {
-              const res = await fetch(`https://ip-api.com/json/?fields=status,country,countryCode,city,regionName`, {
+              // Versuche ipapi.co als Alternative
+              const res = await fetch(`https://ipapi.co/json/`, {
                 headers: {
                   'User-Agent': 'Mozilla/5.0'
-                }
+                },
+                signal: AbortSignal.timeout(5000)
               })
               const data = await res.json()
-              console.log(`[Geo Auto] Status: ${data.status}, Country: ${data.country}, City: ${data.city}`)
-              if (data.status === 'success') {
+              
+              if (data.country_name) {
                 geo = {
-                  country: data.country || null,
-                  countryCode: data.countryCode || null,
+                  country: data.country_name || null,
+                  countryCode: data.country_code || null,
                   city: data.city || null,
-                  region: data.regionName || null
+                  region: data.region || null
                 }
+                console.log(`[Geo Fallback Success] Country: ${geo.country}, City: ${geo.city}`)
               }
             } catch (fallbackError) {
-              console.error('Geo auto-detection error:', fallbackError)
+              console.error('[Geo Fallback Error]:', fallbackError)
             }
-          } else {
-            console.log(`[Geo] IP invalid or private - IP: ${ip}`)
           }
         } catch (e) {
-          console.error('Geo lookup error:', e, 'IP:', ip)
+          console.error('[Geo Lookup Error]:', e, 'IP:', ip)
         }
 
         await prisma.event.create({
