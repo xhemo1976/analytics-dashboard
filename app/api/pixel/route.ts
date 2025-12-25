@@ -45,7 +45,10 @@ export async function GET(request: NextRequest) {
       })
 
       if (website) {
-        // IP-Adresse aus verschiedenen Headern extrahieren (für Proxies/CDNs)
+        // PRIORITÄT 1: IP direkt vom Client (vom Tracker gesendet) - das ist die zuverlässigste Methode
+        const clientSentIp = searchParams.get('ip')
+        
+        // PRIORITÄT 2: IP-Adresse aus verschiedenen Headern extrahieren (für Proxies/CDNs)
         const forwardedFor = request.headers.get('x-forwarded-for')
         const cfConnectingIp = request.headers.get('cf-connecting-ip') // Cloudflare
         const realIp = request.headers.get('x-real-ip')
@@ -64,22 +67,21 @@ export async function GET(request: NextRequest) {
         // @ts-ignore - ip property might exist in some Next.js versions
         const requestIp = request.ip || null
         
-        // Priorität: cf-connecting-ip > x-real-ip > request.ip > x-vercel-forwarded-for > x-forwarded-for (LETZTE IP) > x-client-ip
-        let ip = cfConnectingIp || realIp || requestIp || vercelIp || forwardedIp || clientIp || null
+        // Priorität: Client-gesendete IP > cf-connecting-ip > x-real-ip > request.ip > x-vercel-forwarded-for > x-forwarded-for (LETZTE IP) > x-client-ip
+        let ip = clientSentIp || cfConnectingIp || realIp || requestIp || vercelIp || forwardedIp || clientIp || null
         
         // Debug: Log alle Header für Diagnose
         console.log(`[IP Debug] cf-connecting-ip: ${cfConnectingIp}, x-real-ip: ${realIp}, x-vercel-forwarded-for: ${vercelIp}, x-forwarded-for: ${forwardedFor}, x-client-ip: ${clientIp}, Final IP: ${ip}`)
         
         let geo = null
         try {
-          // Versuche immer Geolokalisierung, auch wenn IP nicht perfekt ist
+          // Versuche zuerst mit der erkannten IP
           if (ip && ip !== 'unknown' && ip !== '' && !ip.startsWith('192.168') && !ip.startsWith('10.') && !ip.startsWith('172.16')) {
             // Verwende HTTPS für die IP-API mit spezifischer IP
             const res = await fetch(`https://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`, {
               headers: {
                 'User-Agent': 'Mozilla/5.0'
               },
-              // Timeout nach 5 Sekunden
               signal: AbortSignal.timeout(5000)
             })
             const data = await res.json()
@@ -92,22 +94,30 @@ export async function GET(request: NextRequest) {
                 region: data.regionName || null
               }
               console.log(`[Geo Success] IP: ${ip}, Country: ${geo.country}, City: ${geo.city}`)
+              
+              // Prüfe ob das Ergebnis plausibel ist (nicht Ashburn wenn wir in Deutschland sind)
+              // Falls Ashburn/USA erkannt wird, versuche Fallback
+              if (geo.country === 'United States' && geo.city === 'Ashburn') {
+                console.log(`[Geo Warning] Suspicious result (Ashburn/USA), trying fallback...`)
+                geo = null // Setze auf null, um Fallback zu triggern
+              }
             } else {
               console.log(`[Geo Failed] IP: ${ip}, Status: ${data.status}, Message: ${data.message || 'unknown'}`)
             }
           }
           
-          // Fallback: Wenn keine IP oder Geo-Lookup fehlgeschlagen, versuche alternative Methode
+          // Fallback: Verwende einen Service, der die IP direkt aus dem Request erkennt
+          // WICHTIG: Diese Services erkennen die IP aus den Headern des Requests
           if (!geo) {
             try {
-              // Versuche ipapi.co als Alternative - diese API erkennt die Client-IP automatisch
-              // WICHTIG: Dies funktioniert nur, wenn die API die IP aus dem Request erkennt
-              // In Serverless-Environments wird das die Server-IP sein, nicht die Client-IP
+              // Versuche ipapi.co - diese API liest die IP aus X-Forwarded-For Header
               const res = await fetch(`https://ipapi.co/json/`, {
                 headers: {
                   'User-Agent': 'Mozilla/5.0',
-                  // Versuche die Client-IP in einem Header zu übergeben
-                  'X-Forwarded-For': ip || forwardedFor || ''
+                  // Übergebe die Client-IP in den Headern
+                  'X-Forwarded-For': forwardedFor || ip || '',
+                  'CF-Connecting-IP': cfConnectingIp || '',
+                  'X-Real-IP': realIp || ''
                 },
                 signal: AbortSignal.timeout(5000)
               })
@@ -126,6 +136,32 @@ export async function GET(request: NextRequest) {
               }
             } catch (fallbackError) {
               console.error('[Geo Fallback Error]:', fallbackError)
+            }
+          }
+          
+          // Zweiter Fallback: ip-api.com ohne IP (erkennt automatisch)
+          if (!geo) {
+            try {
+              const res = await fetch(`https://ip-api.com/json/?fields=status,country,countryCode,city,regionName`, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0',
+                  'X-Forwarded-For': forwardedFor || ip || ''
+                },
+                signal: AbortSignal.timeout(5000)
+              })
+              const data = await res.json()
+              
+              if (data.status === 'success' && data.country !== 'United States') {
+                geo = {
+                  country: data.country || null,
+                  countryCode: data.countryCode || null,
+                  city: data.city || null,
+                  region: data.regionName || null
+                }
+                console.log(`[Geo Fallback2 Success] Country: ${geo.country}, City: ${geo.city}`)
+              }
+            } catch (fallback2Error) {
+              console.error('[Geo Fallback2 Error]:', fallback2Error)
             }
           }
         } catch (e) {
