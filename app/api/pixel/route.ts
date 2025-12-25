@@ -52,8 +52,23 @@ export async function GET(request: NextRequest) {
         const clientIp = request.headers.get('x-client-ip')
         const vercelIp = request.headers.get('x-vercel-forwarded-for') // Vercel
         
-        // Priorität: cf-connecting-ip > x-real-ip > x-vercel-forwarded-for > x-forwarded-for (erste IP) > x-client-ip
-        let ip = cfConnectingIp || realIp || vercelIp || (forwardedFor?.split(',')[0]?.trim()) || clientIp || null
+        // WICHTIG: Bei x-forwarded-for ist die LETZTE IP die echte Client-IP (nicht die erste!)
+        // Format: "proxy1, proxy2, client-ip"
+        let forwardedIp = null
+        if (forwardedFor) {
+          const ips = forwardedFor.split(',').map(ip => ip.trim()).filter(ip => ip)
+          forwardedIp = ips.length > 0 ? ips[ips.length - 1] : null // Letzte IP = Client-IP
+        }
+        
+        // Versuche auch die IP direkt aus dem Request-Objekt zu bekommen (falls Next.js das unterstützt)
+        // @ts-ignore - ip property might exist in some Next.js versions
+        const requestIp = request.ip || null
+        
+        // Priorität: cf-connecting-ip > x-real-ip > request.ip > x-vercel-forwarded-for > x-forwarded-for (LETZTE IP) > x-client-ip
+        let ip = cfConnectingIp || realIp || requestIp || vercelIp || forwardedIp || clientIp || null
+        
+        // Debug: Log alle Header für Diagnose
+        console.log(`[IP Debug] cf-connecting-ip: ${cfConnectingIp}, x-real-ip: ${realIp}, x-vercel-forwarded-for: ${vercelIp}, x-forwarded-for: ${forwardedFor}, x-client-ip: ${clientIp}, Final IP: ${ip}`)
         
         let geo = null
         try {
@@ -85,16 +100,20 @@ export async function GET(request: NextRequest) {
           // Fallback: Wenn keine IP oder Geo-Lookup fehlgeschlagen, versuche alternative Methode
           if (!geo) {
             try {
-              // Versuche ipapi.co als Alternative
+              // Versuche ipapi.co als Alternative - diese API erkennt die Client-IP automatisch
+              // WICHTIG: Dies funktioniert nur, wenn die API die IP aus dem Request erkennt
+              // In Serverless-Environments wird das die Server-IP sein, nicht die Client-IP
               const res = await fetch(`https://ipapi.co/json/`, {
                 headers: {
-                  'User-Agent': 'Mozilla/5.0'
+                  'User-Agent': 'Mozilla/5.0',
+                  // Versuche die Client-IP in einem Header zu übergeben
+                  'X-Forwarded-For': ip || forwardedFor || ''
                 },
                 signal: AbortSignal.timeout(5000)
               })
               const data = await res.json()
               
-              if (data.country_name) {
+              if (data.country_name && !data.error) {
                 geo = {
                   country: data.country_name || null,
                   countryCode: data.country_code || null,
@@ -102,6 +121,8 @@ export async function GET(request: NextRequest) {
                   region: data.region || null
                 }
                 console.log(`[Geo Fallback Success] Country: ${geo.country}, City: ${geo.city}`)
+              } else {
+                console.log(`[Geo Fallback Failed] Error: ${data.error || 'unknown'}`)
               }
             } catch (fallbackError) {
               console.error('[Geo Fallback Error]:', fallbackError)
