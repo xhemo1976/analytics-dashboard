@@ -45,24 +45,50 @@ export async function GET(request: NextRequest) {
       })
 
       if (website) {
+        // IP-Adresse aus verschiedenen Headern extrahieren (für Proxies/CDNs)
         const forwardedFor = request.headers.get('x-forwarded-for')
-        const ip = forwardedFor?.split(',')[0] || 'unknown'
+        const cfConnectingIp = request.headers.get('cf-connecting-ip') // Cloudflare
+        const realIp = request.headers.get('x-real-ip')
+        const clientIp = request.headers.get('x-client-ip')
+        
+        // Priorität: cf-connecting-ip > x-real-ip > x-forwarded-for (erste IP) > x-client-ip
+        let ip = cfConnectingIp || realIp || (forwardedFor?.split(',')[0]?.trim()) || clientIp || 'unknown'
+        
+        // Fallback: Versuche IP aus Next.js Request zu bekommen
+        if (ip === 'unknown' || ip === '') {
+          const url = new URL(request.url)
+          ip = url.searchParams.get('ip') || 'unknown'
+        }
         
         let geo = null
         try {
-          if (ip !== 'unknown' && !ip.startsWith('192.168')) {
-            const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`)
+          // Nur Geolokalisierung durchführen wenn IP gültig ist
+          if (ip !== 'unknown' && ip !== '' && !ip.startsWith('192.168') && !ip.startsWith('10.') && !ip.startsWith('172.16')) {
+            // Verwende HTTPS für die IP-API
+            const res = await fetch(`https://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0'
+              }
+            })
             const data = await res.json()
-            if (data.status === 'success') {
+            if (data.status === 'success' && data.city) {
+              // Debug-Logging für mobile Geräte
+              if (deviceType === 'mobile') {
+                console.log(`[Mobile] IP: ${ip}, City: ${data.city}, Country: ${data.country}, Region: ${data.regionName}`)
+              }
               geo = {
                 country: data.country,
                 countryCode: data.countryCode,
                 city: data.city,
                 region: data.regionName
               }
+            } else if (deviceType === 'mobile') {
+              console.log(`[Mobile] Geo lookup failed - IP: ${ip}, Status: ${data.status}, Response:`, JSON.stringify(data))
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error('Geo lookup error:', e, 'IP:', ip)
+        }
 
         await prisma.event.create({
           data: {
@@ -98,4 +124,5 @@ export async function GET(request: NextRequest) {
       'Access-Control-Allow-Headers': 'Content-Type',
     },
   })
+}
 }
