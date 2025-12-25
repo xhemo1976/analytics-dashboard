@@ -52,39 +52,61 @@ export async function GET(request: NextRequest) {
         const clientIp = request.headers.get('x-client-ip')
         
         // Priorität: cf-connecting-ip > x-real-ip > x-forwarded-for (erste IP) > x-client-ip
-        let ip = cfConnectingIp || realIp || (forwardedFor?.split(',')[0]?.trim()) || clientIp || 'unknown'
+        let ip = cfConnectingIp || realIp || (forwardedFor?.split(',')[0]?.trim()) || clientIp || null
         
-        // Fallback: Versuche IP aus Next.js Request zu bekommen
-        if (ip === 'unknown' || ip === '') {
-          const url = new URL(request.url)
-          ip = url.searchParams.get('ip') || 'unknown'
-        }
+        // Debug: Log welche IP gefunden wurde
+        console.log(`[IP Detection] cf-connecting-ip: ${cfConnectingIp}, x-real-ip: ${realIp}, x-forwarded-for: ${forwardedFor}, x-client-ip: ${clientIp}, Final IP: ${ip}`)
         
         let geo = null
         try {
-          // Nur Geolokalisierung durchführen wenn IP gültig ist
-          if (ip !== 'unknown' && ip !== '' && !ip.startsWith('192.168') && !ip.startsWith('10.') && !ip.startsWith('172.16')) {
-            // Verwende HTTPS für die IP-API
+          // Wenn IP in Headern gefunden wurde und gültig ist
+          if (ip && ip !== 'unknown' && ip !== '' && !ip.startsWith('192.168') && !ip.startsWith('10.') && !ip.startsWith('172.16')) {
+            // Verwende HTTPS für die IP-API mit spezifischer IP
             const res = await fetch(`https://ip-api.com/json/${ip}?fields=status,country,countryCode,city,regionName`, {
               headers: {
                 'User-Agent': 'Mozilla/5.0'
               }
             })
             const data = await res.json()
-            if (data.status === 'success' && data.city) {
-              // Debug-Logging für mobile Geräte
-              if (deviceType === 'mobile') {
-                console.log(`[Mobile] IP: ${ip}, City: ${data.city}, Country: ${data.country}, Region: ${data.regionName}`)
-              }
+            
+            // Debug-Logging für alle Requests
+            console.log(`[Geo] IP: ${ip}, Status: ${data.status}, Country: ${data.country}, City: ${data.city}, Device: ${deviceType}`)
+            
+            if (data.status === 'success') {
+              // Speichere auch wenn nur Land vorhanden ist (nicht nur wenn Stadt vorhanden ist)
               geo = {
-                country: data.country,
-                countryCode: data.countryCode,
-                city: data.city,
-                region: data.regionName
+                country: data.country || null,
+                countryCode: data.countryCode || null,
+                city: data.city || null,
+                region: data.regionName || null
               }
-            } else if (deviceType === 'mobile') {
-              console.log(`[Mobile] Geo lookup failed - IP: ${ip}, Status: ${data.status}, Response:`, JSON.stringify(data))
+            } else {
+              console.log(`[Geo] Lookup failed - IP: ${ip}, Status: ${data.status}, Message: ${data.message || 'unknown'}`)
             }
+          } else if (!ip || ip === 'unknown' || ip === '') {
+            // Fallback: Rufe IP-API ohne IP-Parameter auf, um Client-IP automatisch zu erkennen
+            console.log(`[Geo] No IP in headers, trying auto-detection`)
+            try {
+              const res = await fetch(`https://ip-api.com/json/?fields=status,country,countryCode,city,regionName`, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0'
+                }
+              })
+              const data = await res.json()
+              console.log(`[Geo Auto] Status: ${data.status}, Country: ${data.country}, City: ${data.city}`)
+              if (data.status === 'success') {
+                geo = {
+                  country: data.country || null,
+                  countryCode: data.countryCode || null,
+                  city: data.city || null,
+                  region: data.regionName || null
+                }
+              }
+            } catch (fallbackError) {
+              console.error('Geo auto-detection error:', fallbackError)
+            }
+          } else {
+            console.log(`[Geo] IP invalid or private - IP: ${ip}`)
           }
         } catch (e) {
           console.error('Geo lookup error:', e, 'IP:', ip)
