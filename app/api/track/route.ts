@@ -8,13 +8,22 @@ export async function POST(request: NextRequest) {
 
     if (!domain) return NextResponse.json({ error: 'Missing domain' }, { status: 400 })
 
+    // --- NEU: DER TÜRSTEHER (Bot Filter) ---
+    // Wenn der Besucher "bot", "crawl", "spider" oder "Jetpack" im Namen hat -> IGNORIEREN
+    const isBot = /bot|googlebot|crawler|spider|robot|crawling|jetpack/i.test(userAgent || '')
+    if (isBot) {
+      // Wir antworten "OK", speichern aber NICHTS in der Datenbank.
+      return NextResponse.json({ success: true, message: 'Bot ignored' })
+    }
+    // ---------------------------------------
+
     // 1. Website finden
     const website = await prisma.website.findUnique({
       where: { domain },
     })
 
     if (website) {
-      // 2. Simple User-Agent Analyse (manuell, spart Bibliotheken)
+      // 2. Simple Geräte-Erkennung
       let deviceType = 'desktop'
       if (/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(userAgent)) deviceType = 'tablet'
       else if (/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(userAgent)) deviceType = 'mobile'
@@ -32,8 +41,7 @@ export async function POST(request: NextRequest) {
       else if (userAgent.includes('iPhone') || userAgent.includes('iPad')) os = 'iOS'
       else if (userAgent.includes('Linux')) os = 'Linux'
 
-      // 3. GEO LOCATION via Vercel Headers (Das ist der Schlüssel!)
-      // Kein externer API Call nötig. Vercel liefert das gratis mit.
+      // 3. GEO LOCATION (Vercel Headers)
       const country = request.headers.get('x-vercel-ip-country')
       const region = request.headers.get('x-vercel-ip-country-region')
       const city = request.headers.get('x-vercel-ip-city')
@@ -51,8 +59,8 @@ export async function POST(request: NextRequest) {
           screenWidth: Number(screenWidth) || null,
           screenHeight: Number(screenHeight) || null,
           country: country || null,
-          countryCode: country || null, // Vercel liefert oft den Code als Country
-          city: city || null,
+          countryCode: country || null,
+          city: city ? decodeURIComponent(city) : null,
           region: region || null,
         },
       })
