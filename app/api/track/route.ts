@@ -8,22 +8,16 @@ export async function POST(request: NextRequest) {
 
     if (!domain) return NextResponse.json({ error: 'Missing domain' }, { status: 400 })
 
-    // --- NEU: DER TÜRSTEHER (Bot Filter) ---
-    // Wenn der Besucher "bot", "crawl", "spider" oder "Jetpack" im Namen hat -> IGNORIEREN
+    // BOT FILTER: Ignoriert Jetpack, Google & Co.
     const isBot = /bot|googlebot|crawler|spider|robot|crawling|jetpack/i.test(userAgent || '')
-    if (isBot) {
-      // Wir antworten "OK", speichern aber NICHTS in der Datenbank.
-      return NextResponse.json({ success: true, message: 'Bot ignored' })
-    }
-    // ---------------------------------------
+    if (isBot) return NextResponse.json({ success: true, message: 'Bot ignored' })
 
-    // 1. Website finden
     const website = await prisma.website.findUnique({
       where: { domain },
     })
 
     if (website) {
-      // 2. Simple Geräte-Erkennung
+      // Gerät erkennen
       let deviceType = 'desktop'
       if (/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(userAgent)) deviceType = 'tablet'
       else if (/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(userAgent)) deviceType = 'mobile'
@@ -41,12 +35,11 @@ export async function POST(request: NextRequest) {
       else if (userAgent.includes('iPhone') || userAgent.includes('iPad')) os = 'iOS'
       else if (userAgent.includes('Linux')) os = 'Linux'
 
-      // 3. GEO LOCATION (Vercel Headers)
+      // GEO LOCATION FIX: Hier nutzen wir die Vercel-Header (KEIN ip-api.com mehr!)
       const country = request.headers.get('x-vercel-ip-country')
       const region = request.headers.get('x-vercel-ip-country-region')
       const city = request.headers.get('x-vercel-ip-city')
 
-      // 4. Speichern
       await prisma.event.create({
         data: {
           websiteId: website.id,
