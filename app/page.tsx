@@ -335,23 +335,6 @@ export default function Dashboard() {
 
                 {/* Second Row */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Top Städte */}
-                  <GlassCard title="🏙️ Top Städte" subtitle="Besucher nach Stadt">
-                    <div className="space-y-3">
-                      {Object.entries(stats.cities)
-                        .sort(([, a], [, b]) => b - a)
-                        .slice(0, 6)
-                        .map(([city, count], i) => (
-                          <ProgressBar
-                            key={city}
-                            label={city}
-                            value={count}
-                            max={stats.totalViews}
-                            color={COLORS[i % COLORS.length]}
-                          />
-                        ))}
-                    </div>
-                  </GlassCard>
 
                   {/* Top Quellen */}
                   <GlassCard title="🔗 Traffic Quellen" subtitle="Woher kommen die Besucher">
@@ -399,25 +382,6 @@ export default function Dashboard() {
                   <StatsCard title="Seitenaufrufe" value={stats.totalViews} icon="👁️" gradient="from-orange-500 to-amber-500" />
                 </div>
 
-                <div className="grid grid-cols-1 gap-6">
-                  {/* Städte */}
-                  <GlassCard title="🏙️ Städte" subtitle="Besucher nach Stadt">
-                    <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
-                      {Object.entries(stats.cities)
-                        .sort(([, a], [, b]) => b - a)
-                        .slice(0, 20)
-                        .map(([city, count], i) => (
-                          <ProgressBar
-                            key={city}
-                            label={city}
-                            value={count}
-                            max={stats.totalViews}
-                            color={COLORS[i % COLORS.length]}
-                          />
-                        ))}
-                    </div>
-                  </GlassCard>
-                </div>
               </div>
             )}
 
@@ -627,7 +591,6 @@ export default function Dashboard() {
                         <tr className="text-gray-400 text-left border-b border-white/10">
                           <th className="pb-4 font-medium">Zeit</th>
                           <th className="pb-4 font-medium">Seite</th>
-                          <th className="pb-4 font-medium">Stadt</th>
                           <th className="pb-4 font-medium">Gerät</th>
                           <th className="pb-4 font-medium">Browser</th>
                           <th className="pb-4 font-medium">Quelle</th>
@@ -642,7 +605,6 @@ export default function Dashboard() {
                             <td className="py-4">
                               <span className="bg-violet-500/20 text-violet-400 px-2 py-1 rounded-lg text-xs">{event.urlPath}</span>
                             </td>
-                            <td className="py-4">{event.city || '-'}</td>
                             <td className="py-4">{DEVICE_ICONS[event.deviceType || 'Unknown']} {event.deviceType || '-'}</td>
                             <td className="py-4">{BROWSER_ICONS[event.browser || 'Unknown']} {event.browser || '-'}</td>
                             <td className="py-4">
