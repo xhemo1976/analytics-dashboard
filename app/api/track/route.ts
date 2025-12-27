@@ -8,15 +8,18 @@ export async function POST(request: NextRequest) {
 
     if (!domain) return NextResponse.json({ error: 'Missing domain' }, { status: 400 })
 
-    // BOT FILTER: Ignoriert Jetpack, Google & Co.
+    // BOT FILTER
     const isBot = /bot|googlebot|crawler|spider|robot|crawling|jetpack/i.test(userAgent || '')
     if (isBot) return NextResponse.json({ success: true, message: 'Bot ignored' })
 
-    const website = await prisma.website.findUnique({
-      where: { domain },
-    })
+    const website = await prisma.website.findUnique({ where: { domain } })
 
     if (website) {
+      // GEO LOCATION (Vercel Header - Die saubere Lösung)
+      const country = request.headers.get('x-vercel-ip-country')
+      const region = request.headers.get('x-vercel-ip-country-region')
+      const city = request.headers.get('x-vercel-ip-city')
+
       // Gerät erkennen
       let deviceType = 'desktop'
       if (/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(userAgent)) deviceType = 'tablet'
@@ -34,11 +37,6 @@ export async function POST(request: NextRequest) {
       else if (userAgent.includes('Android')) os = 'Android'
       else if (userAgent.includes('iPhone') || userAgent.includes('iPad')) os = 'iOS'
       else if (userAgent.includes('Linux')) os = 'Linux'
-
-      // GEO LOCATION FIX: Hier nutzen wir die Vercel-Header (KEIN ip-api.com mehr!)
-      const country = request.headers.get('x-vercel-ip-country')
-      const region = request.headers.get('x-vercel-ip-country-region')
-      const city = request.headers.get('x-vercel-ip-city')
 
       await prisma.event.create({
         data: {
@@ -58,10 +56,8 @@ export async function POST(request: NextRequest) {
         },
       })
     }
-
     return NextResponse.json({ success: true })
   } catch (e) {
-    console.error('Tracking error:', e)
     return NextResponse.json({ error: 'Internal Error' }, { status: 500 })
   }
 }
