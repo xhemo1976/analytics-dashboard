@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { d: domain, p: urlPath, r: referrer, sw: screenWidth, sh: screenHeight, ua: userAgent } = body
+    const { d: domain, p: urlPath, r: referrer, sw: screenWidth, sh: screenHeight, ua: userAgent, ip: clientSentIp } = body
 
     if (!domain) return NextResponse.json({ error: 'Missing domain' }, { status: 400 })
 
@@ -37,8 +37,11 @@ export async function POST(request: NextRequest) {
           forwardedIp = ips.length > 0 ? ips[ips.length - 1] : null
         }
         
-        // Priorität: cf-connecting-ip > x-real-ip > x-vercel-forwarded-for > x-forwarded-for (LETZTE IP) > x-client-ip
-        const ip = cfConnectingIp || realIp || vercelIp || forwardedIp || clientIp || null
+        // Priorität: Client-gesendete IP > cf-connecting-ip > x-real-ip > x-vercel-forwarded-for > x-forwarded-for (LETZTE IP) > x-client-ip
+        const ip = clientSentIp || cfConnectingIp || realIp || vercelIp || forwardedIp || clientIp || null
+        
+        // Debug-Logging
+        console.log(`[Track IP Debug] Client IP: ${clientSentIp}, cf-connecting-ip: ${cfConnectingIp}, x-real-ip: ${realIp}, x-vercel-forwarded-for: ${vercelIp}, x-forwarded-for: ${forwardedFor}, Final IP: ${ip}`)
         
         if (ip && ip !== 'unknown' && ip !== '' && !ip.startsWith('192.168') && !ip.startsWith('10.') && !ip.startsWith('172.16')) {
           try {
@@ -50,16 +53,19 @@ export async function POST(request: NextRequest) {
             const data = await res.json()
             
             if (data.status === 'success') {
+              console.log(`[Track Geo] IP: ${ip}, Country: ${data.country}, City: ${data.city}, Region: ${data.regionName}`)
+              
               // Überschreibe nur wenn Vercel-Header nicht vorhanden waren
               if (!country) country = data.country || null
               if (!countryCode) countryCode = data.countryCode || null
               if (!city) city = data.city || null
               if (!region) region = data.regionName || null
               
-              // Prüfe auf verdächtige Ergebnisse (Ashburn/USA)
-              if (data.country === 'United States' && data.city === 'Ashburn') {
-                console.log(`[Track Warning] Suspicious geo result (Ashburn/USA) for IP: ${ip}, trying fallback...`)
-                // Versuche Fallback-API
+              // Prüfe auf verdächtige Ergebnisse (USA) - IMMER Fallback versuchen wenn USA erkannt wird
+              // (da viele Proxies/CDNs in USA sind)
+              if (data.country === 'United States') {
+                console.log(`[Track Warning] USA detected (${data.city}) for IP: ${ip}, trying fallback API...`)
+                // Versuche IMMER Fallback-API wenn USA erkannt wird
                 try {
                   const fallbackRes = await fetch(`https://ipapi.co/json/`, {
                     headers: {
@@ -70,12 +76,37 @@ export async function POST(request: NextRequest) {
                   })
                   const fallbackData = await fallbackRes.json()
                   
+                  console.log(`[Track Fallback] ipapi.co result: Country: ${fallbackData.country_name}, City: ${fallbackData.city}`)
+                  
+                  // Wenn Fallback ein anderes Land findet (nicht USA), verwende das
                   if (fallbackData.country_name && !fallbackData.error && fallbackData.country_name !== 'United States') {
-                    country = fallbackData.country_name || country
-                    countryCode = fallbackData.country_code || countryCode
-                    city = fallbackData.city || city
-                    region = fallbackData.region || region
-                    console.log(`[Track Fallback Success] Country: ${country}, City: ${city}`)
+                    country = fallbackData.country_name
+                    countryCode = fallbackData.country_code
+                    city = fallbackData.city
+                    region = fallbackData.region
+                    console.log(`[Track Fallback Success] Using fallback: Country: ${country}, City: ${city}`)
+                  } else if (fallbackData.country_name === 'United States') {
+                    // Auch Fallback sagt USA - versuche noch eine API
+                    console.log(`[Track Warning] Fallback also says USA, trying third API...`)
+                    try {
+                      const thirdRes = await fetch(`https://ip-api.com/json/?fields=status,country,countryCode,city,regionName`, {
+                        headers: {
+                          'User-Agent': 'Mozilla/5.0',
+                          'X-Forwarded-For': forwardedFor || ip || ''
+                        },
+                        signal: AbortSignal.timeout(5000)
+                      })
+                      const thirdData = await thirdRes.json()
+                      if (thirdData.status === 'success' && thirdData.country !== 'United States') {
+                        country = thirdData.country
+                        countryCode = thirdData.countryCode
+                        city = thirdData.city
+                        region = thirdData.regionName
+                        console.log(`[Track Third API Success] Country: ${country}, City: ${city}`)
+                      }
+                    } catch (thirdError) {
+                      console.error('[Track Third API Error]:', thirdError)
+                    }
                   }
                 } catch (fallbackError) {
                   console.error('[Track Fallback Error]:', fallbackError)
