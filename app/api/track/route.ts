@@ -1,6 +1,16 @@
 import { prisma } from '@/lib/prisma'
 import { NextRequest, NextResponse } from 'next/server'
 
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  })
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -62,7 +72,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true }, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+    })
   } catch (e) {
     console.error('[TRACK ERROR]', e)
     return NextResponse.json({ error: 'Internal Error' }, { status: 500 })

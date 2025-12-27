@@ -68,20 +68,6 @@ export async function GET(request: NextRequest) {
     return acc
   }, {} as Record<string, number>)
 
-  // Länder
-  const countries = events.reduce((acc, e) => {
-    const country = e.country || 'Unknown'
-    acc[country] = (acc[country] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
-
-  // Städte
-  const cities = events.reduce((acc, e) => {
-    const city = e.city || 'Unknown'
-    acc[city] = (acc[city] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
-
   // Traffic Sources
   const sources = events.reduce((acc, e) => {
     const source = e.source || 'Direct'
@@ -125,8 +111,6 @@ export async function GET(request: NextRequest) {
     devices,
     browsers,
     operatingSystems,
-    countries,
-    cities,
     sources,
     viewsPerDay,
     viewsPerHour,
@@ -138,8 +122,6 @@ export async function GET(request: NextRequest) {
       deviceType: e.deviceType,
       browser: e.browser,
       os: e.os,
-      country: e.country,
-      city: e.city,
       source: e.source,
       createdAt: e.createdAt
     })),

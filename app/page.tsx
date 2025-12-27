@@ -25,8 +25,6 @@ interface Stats {
   devices: Record<string, number>
   browsers: Record<string, number>
   operatingSystems: Record<string, number>
-  countries: Record<string, number>
-  cities: Record<string, number>
   sources: Record<string, number>
   viewsPerDay: Record<string, number>
   viewsPerHour: Record<string, number>
@@ -38,8 +36,6 @@ interface Stats {
     deviceType: string | null
     browser: string | null
     os: string | null
-    country: string | null
-    city: string | null
     source: string | null
     createdAt: string
   }>
