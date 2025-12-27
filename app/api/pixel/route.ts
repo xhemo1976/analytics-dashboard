@@ -70,9 +70,6 @@ export async function GET(request: NextRequest) {
         // Priorität: Client-gesendete IP > cf-connecting-ip > x-real-ip > request.ip > x-vercel-forwarded-for > x-forwarded-for (LETZTE IP) > x-client-ip
         let ip = clientSentIp || cfConnectingIp || realIp || requestIp || vercelIp || forwardedIp || clientIp || null
         
-        // Debug: Log alle Header für Diagnose
-        console.log(`[IP Debug] cf-connecting-ip: ${cfConnectingIp}, x-real-ip: ${realIp}, x-vercel-forwarded-for: ${vercelIp}, x-forwarded-for: ${forwardedFor}, x-client-ip: ${clientIp}, Final IP: ${ip}`)
-        
         let geo = null
         try {
           // Versuche zuerst mit der erkannten IP
@@ -93,16 +90,12 @@ export async function GET(request: NextRequest) {
                 city: data.city || null,
                 region: data.regionName || null
               }
-              console.log(`[Geo Success] IP: ${ip}, Country: ${geo.country}, City: ${geo.city}`)
-              
+
               // Prüfe ob das Ergebnis plausibel ist (nicht Ashburn wenn wir in Deutschland sind)
               // Falls Ashburn/USA erkannt wird, versuche Fallback
               if (geo.country === 'United States' && geo.city === 'Ashburn') {
-                console.log(`[Geo Warning] Suspicious result (Ashburn/USA), trying fallback...`)
                 geo = null // Setze auf null, um Fallback zu triggern
               }
-            } else {
-              console.log(`[Geo Failed] IP: ${ip}, Status: ${data.status}, Message: ${data.message || 'unknown'}`)
             }
           }
           
@@ -130,9 +123,6 @@ export async function GET(request: NextRequest) {
                   city: data.city || null,
                   region: data.region || null
                 }
-                console.log(`[Geo Fallback Success] Country: ${geo.country}, City: ${geo.city}`)
-              } else {
-                console.log(`[Geo Fallback Failed] Error: ${data.error || 'unknown'}`)
               }
             } catch (fallbackError) {
               console.error('[Geo Fallback Error]:', fallbackError)
@@ -158,7 +148,6 @@ export async function GET(request: NextRequest) {
                   city: data.city || null,
                   region: data.regionName || null
                 }
-                console.log(`[Geo Fallback2 Success] Country: ${geo.country}, City: ${geo.city}`)
               }
             } catch (fallback2Error) {
               console.error('[Geo Fallback2 Error]:', fallback2Error)
