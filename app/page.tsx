@@ -20,6 +20,8 @@ interface Stats {
   uniqueSessions: number
   newVisitors: number
   returningVisitors: number
+  avgPagesPerSession: number
+  bounceRate: number
   pageViews: Record<string, number>
   referrers: Record<string, number>
   devices: Record<string, number>
@@ -108,7 +110,31 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchStats()
-  }, [days])
+  }, [days, domain])
+
+  // Export-Funktion
+  const handleExport = () => {
+    if (!stats) return
+    
+    const exportData = {
+      domain,
+      exportDate: new Date().toISOString(),
+      period: `${days} Tage`,
+      statistics: stats,
+    }
+    
+    // JSON Export
+    const jsonStr = JSON.stringify(exportData, null, 2)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `analytics-${domain}-${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
   const chartData = stats
     ? Object.entries(stats.viewsPerDay)
@@ -180,6 +206,8 @@ export default function Dashboard() {
               <option value={7} className="bg-gray-900">7 Tage</option>
               <option value={30} className="bg-gray-900">30 Tage</option>
               <option value={90} className="bg-gray-900">90 Tage</option>
+              <option value={365} className="bg-gray-900">1 Jahr</option>
+              <option value={9999} className="bg-gray-900">Alle</option>
             </select>
 
             <button
@@ -189,6 +217,14 @@ export default function Dashboard() {
             >
               <span className="relative z-10">{loading ? '⏳ Laden...' : '🔄 Aktualisieren'}</span>
               <div className="absolute inset-0 bg-gradient-to-r from-violet-400 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+
+            <button
+              onClick={handleExport}
+              disabled={!stats || loading}
+              className="relative group bg-white/5 backdrop-blur-xl border border-white/10 px-6 py-3 rounded-2xl font-semibold overflow-hidden transition-all hover:scale-105 hover:border-violet-500/50 disabled:opacity-50"
+            >
+              <span className="relative z-10">📥 Export</span>
             </button>
           </div>
         </div>
@@ -228,7 +264,7 @@ export default function Dashboard() {
             {activeTab === 'overview' && (
               <div className="space-y-8">
                 {/* Stats Cards */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
                   <StatsCard
                     title="Seitenaufrufe"
                     value={stats.totalViews}
@@ -252,6 +288,18 @@ export default function Dashboard() {
                     value={stats.returningVisitors}
                     icon="🔄"
                     gradient="from-orange-500 to-amber-500"
+                  />
+                  <StatsCard
+                    title="Ø Seiten/Session"
+                    value={stats.avgPagesPerSession}
+                    icon="📄"
+                    gradient="from-pink-500 to-rose-500"
+                  />
+                  <StatsCard
+                    title="Bounce-Rate"
+                    value={`${stats.bounceRate.toFixed(1)}%`}
+                    icon="📊"
+                    gradient="from-indigo-500 to-purple-500"
                   />
                 </div>
 
@@ -371,11 +419,13 @@ export default function Dashboard() {
             {/* Audience Tab */}
             {activeTab === 'audience' && (
               <div className="space-y-8">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
                   <StatsCard title="Neue Besucher" value={stats.newVisitors} icon="✨" gradient="from-emerald-500 to-green-500" />
                   <StatsCard title="Wiederkehrend" value={stats.returningVisitors} icon="🔄" gradient="from-blue-500 to-cyan-500" />
                   <StatsCard title="Sessions" value={stats.uniqueSessions} icon="🎯" gradient="from-violet-500 to-purple-500" />
                   <StatsCard title="Seitenaufrufe" value={stats.totalViews} icon="👁️" gradient="from-orange-500 to-amber-500" />
+                  <StatsCard title="Ø Seiten/Session" value={stats.avgPagesPerSession} icon="📄" gradient="from-pink-500 to-rose-500" />
+                  <StatsCard title="Bounce-Rate" value={`${stats.bounceRate.toFixed(1)}%`} icon="📊" gradient="from-indigo-500 to-purple-500" />
                 </div>
 
               </div>
@@ -645,7 +695,7 @@ function GlassCard({ title, subtitle, children }: { title: string; subtitle?: st
   )
 }
 
-function StatsCard({ title, value, icon, gradient }: { title: string; value: number; icon: string; gradient: string }) {
+function StatsCard({ title, value, icon, gradient }: { title: string; value: number | string; icon: string; gradient: string }) {
   return (
     <div className="relative group">
       <div className={`absolute -inset-0.5 bg-gradient-to-r ${gradient} rounded-3xl blur opacity-25 group-hover:opacity-50 transition-opacity`} />
@@ -654,7 +704,9 @@ function StatsCard({ title, value, icon, gradient }: { title: string; value: num
           <span className="text-gray-400 text-sm">{title}</span>
           <span className="text-2xl">{icon}</span>
         </div>
-        <div className="text-3xl lg:text-4xl font-black text-white">{value.toLocaleString('de-DE')}</div>
+        <div className="text-3xl lg:text-4xl font-black text-white">
+          {typeof value === 'number' ? value.toLocaleString('de-DE', { maximumFractionDigits: 2 }) : value}
+        </div>
       </div>
     </div>
   )

@@ -18,8 +18,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Website not found' }, { status: 404 })
   }
 
-  const since = new Date()
-  since.setDate(since.getDate() - days)
+  const since = days >= 9999 ? new Date(0) : new Date()
+  if (days < 9999) {
+    since.setDate(since.getDate() - days)
+  }
 
   const events = await prisma.event.findMany({
     where: {
@@ -33,6 +35,23 @@ export async function GET(request: NextRequest) {
   const totalViews = events.length
   const uniqueSessions = new Set(events.map(e => e.sessionId).filter(Boolean)).size
   const newVisitors = events.filter(e => e.isNewVisitor).length
+  
+  // Durchschnittliche Seiten pro Session
+  const sessionsMap = new Map<string, number>()
+  events.forEach(e => {
+    if (e.sessionId) {
+      sessionsMap.set(e.sessionId, (sessionsMap.get(e.sessionId) || 0) + 1)
+    }
+  })
+  const avgPagesPerSession = uniqueSessions > 0 
+    ? parseFloat((Array.from(sessionsMap.values()).reduce((a, b) => a + b, 0) / uniqueSessions).toFixed(2))
+    : 0
+  
+  // Bounce-Rate (Sessions mit nur 1 Seitenaufruf)
+  const singlePageSessions = Array.from(sessionsMap.values()).filter(count => count === 1).length
+  const bounceRate = uniqueSessions > 0 
+    ? parseFloat(((singlePageSessions / uniqueSessions) * 100).toFixed(1))
+    : 0
 
   // Seiten
   const pageViews = events.reduce((acc, e) => {
@@ -106,6 +125,8 @@ export async function GET(request: NextRequest) {
     uniqueSessions,
     newVisitors,
     returningVisitors: uniqueSessions - newVisitors,
+    avgPagesPerSession,
+    bounceRate,
     pageViews,
     referrers,
     devices,
